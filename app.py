@@ -3,7 +3,6 @@ import os
 import requests
 import time
 from google import genai
-from google.genai import errors
 from dotenv import load_dotenv
 
 # 1. Configuración visual de la página
@@ -15,11 +14,12 @@ st.markdown("Buscá los papers más recientes y obtené el análisis clínico al
 load_dotenv()
 api_key = os.getenv("GEMINI_API_KEY")
 
-# 3. Panel de control (La interfaz de usuario)
+# 3. Panel de control
 with st.form("panel_busqueda"):
+    # Modificamos el valor por defecto para evitar papers irrelevantes sobre autores con apellido Isak
     tema_busqueda = st.text_input(
         "Términos de búsqueda (recomendado en inglés):", 
-        value='("sports nutrition"[Title/Abstract] OR "muscle hypertrophy"[Title/Abstract])'
+        value='"cineanthropometry"[Title/Abstract] OR "ISAK"[Title/Abstract]'
     )
     cantidad_papers = st.slider("Cantidad de estudios a analizar:", min_value=1, max_value=10, value=3)
     boton_buscar = st.form_submit_button("Buscar y Analizar 🚀")
@@ -27,7 +27,7 @@ with st.form("panel_busqueda"):
 # 4. Motor de búsqueda y análisis
 if boton_buscar:
     if not api_key:
-        st.error("⚠️ No se encontró la clave de Gemini en el archivo .env")
+        st.error("⚠️ No se encontró la clave de Gemini.")
     else:
         cliente = genai.Client()
         
@@ -47,7 +47,7 @@ if boton_buscar:
         if not ids_encontrados:
             st.warning("No se encontraron estudios recientes con esos filtros.")
         else:
-            with st.spinner(f"Analizando {len(ids_encontrados)} estudios con Inteligencia Artificial..."):
+            with st.spinner(f"Analizando {len(ids_encontrados)} estudios... esto puede tomar unos segundos."):
                 ids_juntos = ",".join(ids_encontrados)
                 url_textos = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esummary.fcgi"
                 parametros_textos = {
@@ -58,10 +58,9 @@ if boton_buscar:
                 respuesta_textos = requests.get(url_textos, params=parametros_textos)
                 datos_articulos = respuesta_textos.json().get("result", {})
 
-                st.success("¡Análisis completado!")
+                st.success("¡Lectura completada! Generando reportes...")
                 st.divider()
 
-                # Mostrar resultados en pantalla
                 for id_paper in ids_encontrados:
                     articulo = datos_articulos.get(id_paper, {})
                     titulo = articulo.get("title", "Sin título")
@@ -86,11 +85,21 @@ if boton_buscar:
                                 contents=prompt
                             )
                             st.write(respuesta_ia.text)
-                            st.markdown(f"**[🔗 Leer paper original] (https://pubmed.ncbi.nlm.nih.gov/{id_paper}/)**")
+                            st.markdown(f"**[🔗 Leer paper original](https://pubmed.ncbi.nlm.nih.gov/{id_paper}/)**")
+                            
+                            # Pausa estratégica normal para no saturar
+                            time.sleep(3)
                             break
-                        except errors.ServerError:
-                            time.sleep(5)
+                            
                         except Exception as e:
-                            st.error(f"Error al analizar con IA: {e}")
-                            break
+                            error_str = str(e)
+                            # Capturamos el error 429 y lo obligamos a esperar 30 segundos
+                            if '429' in error_str or 'RESOURCE_EXHAUSTED' in error_str:
+                                st.warning(f"⏳ Pausa de seguridad por límite de IA (Esperando 30 segundos...).")
+                                time.sleep(32)
+                            elif '503' in error_str or 'UNAVAILABLE' in error_str:
+                                time.sleep(5)
+                            else:
+                                st.error(f"Error al analizar con IA: {e}")
+                                break
                     st.divider()
